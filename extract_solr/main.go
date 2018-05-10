@@ -99,6 +99,28 @@ func isInt32(val float32) bool {
 	return val == float32(int(val))
 }
 
+func parseNumberType(lowcaseName string, value float64) string {
+	switch {
+	case strings.HasSuffix(lowcaseName, "_i") || strings.HasSuffix(lowcaseName, "_is") || strings.HasSuffix(lowcaseName, "_ilist"):
+		return "INTEGER"
+	case isInt64(value):
+		return "LONG"
+	default:
+		return "DOUBLE"
+	}
+}
+
+func parseStringType(lowcaseName, value string) string {
+	switch {
+	case strings.HasSuffix(lowcaseName, "_dt") || strings.HasSuffix(lowcaseName, "_dts") || strings.HasSuffix(lowcaseName, "_dtlist[]"):
+		return "DATE"
+	case strings.HasSuffix(lowcaseName, "_bin"):
+		return "BINARY"
+	default:
+		return "STRING"
+	}
+}
+
 func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet map[string]struct{}) {
 	if object == nil {
 		return
@@ -109,68 +131,16 @@ func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet ma
 	}
 	lowcaseName := strings.ToLower(field.Name)
 	switch object.(type) {
-	case int:
-	case int8:
-	case int16:
-	case int32:
-	case int64:
-	case uint:
-	case uint8:
-	case uint16:
-	case uint32:
-	case uint64:
-		field.Type = "INTEGER"
-		if strings.HasSuffix(lowcaseName, "_l") || strings.HasSuffix(lowcaseName, "_ls") || strings.HasSuffix(lowcaseName, "_llist") {
-			field.Type = "LONG"
-		}
-		addIfNotExists(schema, field, fieldSet)
-		break
-	case float32:
-		field.Type = "FLOAT"
-		if isInt32(object.(float32)) {
-			field.Type = "INTEGER"
-		}
-		addIfNotExists(schema, field, fieldSet)
-		break
 	case float64:
-		switch {
-		case strings.HasSuffix(lowcaseName, "_i") || strings.HasSuffix(lowcaseName, "_is") || strings.HasSuffix(lowcaseName, "_ilist"):
-			field.Type = "INTEGER"
-			break
-		case isInt64(object.(float64)):
-			field.Type = "LONG"
-			break
-		default:
-			field.Type = "DOUBLE"
-			break
-		}
+		field.Type = parseNumberType(lowcaseName, object.(float64))
 		addIfNotExists(schema, field, fieldSet)
 		break
 	case string:
-		switch {
-		case strings.HasSuffix(lowcaseName, "_dt") || strings.HasSuffix(lowcaseName, "_dts") || strings.HasSuffix(lowcaseName, "_dtlist[]"):
-			field.Type = "DATE"
-			break
-		case strings.HasSuffix(lowcaseName, "_bin"):
-			field.Type = "BINARY"
-			break
-
-		default:
-			field.Type = "STRING"
-			break
-		}
+		field.Type = parseStringType(lowcaseName, object.(string))
 		addIfNotExists(schema, field, fieldSet)
 		break
 	case bool:
 		field.Type = "BOOL"
-		addIfNotExists(schema, field, fieldSet)
-		break
-	case time.Time:
-		field.Type = "DATE"
-		addIfNotExists(schema, field, fieldSet)
-		break
-	case []uint8:
-		field.Type = "BINARY"
 		addIfNotExists(schema, field, fieldSet)
 		break
 	case []interface{}:
@@ -183,6 +153,9 @@ func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet ma
 				break
 			}
 		}
+		break
+	case map[string]interface{}:
+		getStructureSchema(field.Name, solr.Document{Fields: object.(map[string]interface{})}, schema, fieldSet)
 		break
 	default:
 		field.Type = "UNKNOWN"
