@@ -101,7 +101,7 @@ func isInt32(val float32) bool {
 
 func parseNumberType(lowcaseName string, value float64) string {
 	switch {
-	case strings.HasSuffix(lowcaseName, "_i") || strings.HasSuffix(lowcaseName, "_is") || strings.HasSuffix(lowcaseName, "_ilist"):
+	case strings.HasSuffix(lowcaseName, "_i") || strings.HasSuffix(lowcaseName, "_is") || strings.HasSuffix(lowcaseName, "_ilist[]"):
 		return "INTEGER"
 	case isInt64(value):
 		return "LONG"
