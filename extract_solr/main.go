@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"encoding/json"
+	"encoding/xml"
 	"io/ioutil"
 	"log"
 	"os"
@@ -121,7 +122,38 @@ func parseStringType(lowcaseName, value string) string {
 	}
 }
 
-func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet map[string]struct{}) {
+func checkFieldType(solrSchema *solr.Schema, field *docField) bool {
+	if solrSchema == nil || (len(solrSchema.DynamicField) == 0 && len(solrSchema.Field) == 0) {
+		return false
+	}
+	fieldName := field.Name
+	if strings.HasSuffix(fieldName, "[]") {
+		fieldName = fieldName[0 : len(fieldName)-2]
+	}
+	if len(solrSchema.Field) > 0 {
+		for _, f := range solrSchema.Field {
+			if fieldName == f.Name || strings.HasSuffix(fieldName, "."+f.Name) {
+				field.Type = strings.ToUpper(f.Type)
+				return true
+			}
+		}
+	}
+	if len(solrSchema.DynamicField) > 0 {
+		for _, f := range solrSchema.DynamicField {
+			if strings.HasPrefix(f.Name, "*") && strings.HasSuffix(fieldName, f.Name[1:]) {
+				field.Type = strings.ToUpper(f.Type)
+				return true
+			}
+			if strings.HasSuffix(f.Name, "*") && strings.HasPrefix(fieldName, f.Name[:len(f.Name)-1]) {
+				field.Type = strings.ToUpper(f.Type)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func getSchema(solrSchema *solr.Schema, prefix string, object interface{}, schema *docSchema, fieldSet map[string]struct{}) {
 	if object == nil {
 		return
 	}
@@ -132,11 +164,15 @@ func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet ma
 	lowcaseName := strings.ToLower(field.Name)
 	switch object.(type) {
 	case float64:
-		field.Type = parseNumberType(lowcaseName, object.(float64))
+		if !checkFieldType(solrSchema, field) {
+			field.Type = parseNumberType(lowcaseName, object.(float64))
+		}
 		addIfNotExists(schema, field, fieldSet)
 		break
 	case string:
-		field.Type = parseStringType(lowcaseName, object.(string))
+		if !checkFieldType(solrSchema, field) {
+			field.Type = parseStringType(lowcaseName, object.(string))
+		}
 		addIfNotExists(schema, field, fieldSet)
 		break
 	case bool:
@@ -148,24 +184,26 @@ func getSchema(prefix string, object interface{}, schema *docSchema, fieldSet ma
 		addIfNotExists(schema, field, fieldSet)
 		for i, v := range object.([]interface{}) {
 			if i < MaxTryRecords {
-				getSchema(field.Name+"[]", v, schema, fieldSet)
+				getSchema(solrSchema, field.Name+"[]", v, schema, fieldSet)
 			} else {
 				break
 			}
 		}
 		break
 	case map[string]interface{}:
-		getStructureSchema(field.Name, solr.Document{Fields: object.(map[string]interface{})}, schema, fieldSet)
+		getStructureSchema(solrSchema, field.Name, solr.Document{Fields: object.(map[string]interface{})}, schema, fieldSet)
 		break
 	default:
-		field.Type = "UNKNOWN"
+		if !checkFieldType(solrSchema, field) {
+			field.Type = "UNKNOWN"
+		}
 		addIfNotExists(schema, field, fieldSet)
 		log.Printf("%v, Unknown=%v\n", field.Name, reflect.TypeOf(object))
 		break
 	}
 }
 
-func getStructureSchema(prefix string, doc solr.Document, schema *docSchema, fieldSet map[string]struct{}) {
+func getStructureSchema(solrSchema *solr.Schema, prefix string, doc solr.Document, schema *docSchema, fieldSet map[string]struct{}) {
 	for n, v := range doc.Doc() {
 		if v == nil {
 			continue
@@ -176,7 +214,7 @@ func getStructureSchema(prefix string, doc solr.Document, schema *docSchema, fie
 		} else {
 			name = prefix + "." + n
 		}
-		getSchema(name, v, schema, fieldSet)
+		getSchema(solrSchema, name, v, schema, fieldSet)
 	}
 }
 
@@ -189,12 +227,39 @@ func buildQuery() *solr.Query {
 	return &query
 }
 
+func getSchemaDefinition(conn *solr.Connection) (*solr.Schema, error) {
+	configFile, err := conn.AdminGetCoreFile("solrconfig.xml")
+	if err != nil {
+		return nil, err
+	}
+	config := new(solr.SolrConfig)
+	err = xml.Unmarshal(configFile, config)
+	if err != nil {
+		return nil, err
+	}
+	if config.SchemaFactory.Class == "ClassicIndexSchemaFactory" {
+		schemaFile, err := conn.AdminGetCoreFile("schema.xml")
+		if err != nil {
+			return nil, err
+		}
+		schema := new(solr.Schema)
+		err = xml.Unmarshal(schemaFile, schema)
+		if err != nil {
+			return nil, err
+		}
+		return schema, nil
+	}
+	//TODO: access schema API for solr high version
+	return nil, nil
+}
+
 func genCoreSchema(dbSchema map[string]docSchema, comm *commandInfo, coreName string) {
 	fieldSet := make(map[string]struct{})
 	conn, err := solr.InitWithCtx(comm.host, comm.port, comm.context, coreName)
 	if err != nil {
 		log.Fatalln(err)
 	}
+	solrSchema, err := getSchemaDefinition(conn)
 	resp, err := conn.Select(buildQuery())
 	if err != nil {
 		log.Fatalln(err)
@@ -202,7 +267,7 @@ func genCoreSchema(dbSchema map[string]docSchema, comm *commandInfo, coreName st
 	var colSchema = docSchema{}
 	if resp.Results.NumFound > 0 {
 		for _, result := range resp.Results.Collection {
-			getStructureSchema("", result, &colSchema, fieldSet)
+			getStructureSchema(solrSchema, "", result, &colSchema, fieldSet)
 		}
 		if len(colSchema) > 1 {
 			sort.Sort(colSchema)
