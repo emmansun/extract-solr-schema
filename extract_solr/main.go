@@ -227,8 +227,29 @@ func buildQuery() *solr.Query {
 	return &query
 }
 
+func getSchemaDefinitionFromFile(conn *solr.Connection) (*solr.Schema, error) {
+	schemaFile, err := conn.AdminGetCoreFile(solr.SchemaFile)
+	if err != nil {
+		return nil, err
+	}
+	schema := new(solr.Schema)
+	err = xml.Unmarshal(schemaFile, schema)
+	if err != nil {
+		return nil, err
+	}
+	return schema, nil
+}
+
+func getSchemaDefinitionFromAPI(conn *solr.Connection) (*solr.Schema, error) {
+	schema, err := conn.AdminListSchemaFields(true)
+	if err != nil {
+		return nil, err
+	}
+	return schema, nil
+}
+
 func getSchemaDefinition(conn *solr.Connection) (*solr.Schema, error) {
-	configFile, err := conn.AdminGetCoreFile("solrconfig.xml")
+	configFile, err := conn.AdminGetCoreFile(solr.ConfigFile)
 	if err != nil {
 		return nil, err
 	}
@@ -237,20 +258,10 @@ func getSchemaDefinition(conn *solr.Connection) (*solr.Schema, error) {
 	if err != nil {
 		return nil, err
 	}
-	if config.SchemaFactory.Class == "ClassicIndexSchemaFactory" {
-		schemaFile, err := conn.AdminGetCoreFile("schema.xml")
-		if err != nil {
-			return nil, err
-		}
-		schema := new(solr.Schema)
-		err = xml.Unmarshal(schemaFile, schema)
-		if err != nil {
-			return nil, err
-		}
-		return schema, nil
+	if config.SchemaFactory.Class == solr.ClassicIndexSchemaFactory {
+		return getSchemaDefinitionFromFile(conn)
 	}
-	//TODO: access schema API for solr high version
-	return nil, nil
+	return getSchemaDefinitionFromAPI(conn)
 }
 
 func genCoreSchema(dbSchema map[string]docSchema, comm *commandInfo, coreName string) {
@@ -260,6 +271,9 @@ func genCoreSchema(dbSchema map[string]docSchema, comm *commandInfo, coreName st
 		log.Fatalln(err)
 	}
 	solrSchema, err := getSchemaDefinition(conn)
+	if err != nil {
+		log.Printf("Failed to get schema fields %v\n", err)
+	}
 	resp, err := conn.Select(buildQuery())
 	if err != nil {
 		log.Fatalln(err)
@@ -385,6 +399,10 @@ func extractSchema(ctx *cli.Context) error {
 		return exportJSON(cmdInfo, schema)
 	}
 	return exportCSV(cmdInfo, schema)
+}
+
+func init() {
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 }
 
 func main() {
