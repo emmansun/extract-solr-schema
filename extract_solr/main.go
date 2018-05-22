@@ -228,7 +228,7 @@ func buildQuery() *solr.Query {
 }
 
 func getSchemaDefinitionFromFile(conn *solr.Connection) (*solr.Schema, error) {
-	schemaFile, err := conn.AdminGetCoreFile(solr.SchemaFile)
+	schemaFile, err := conn.GetCoreFile(solr.SchemaFile)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func getSchemaDefinitionFromFile(conn *solr.Connection) (*solr.Schema, error) {
 }
 
 func getSchemaDefinitionFromAPI(conn *solr.Connection) (*solr.Schema, error) {
-	schema, err := conn.AdminListSchemaFields(true)
+	schema, err := conn.ListSchemaFields(true)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +249,7 @@ func getSchemaDefinitionFromAPI(conn *solr.Connection) (*solr.Schema, error) {
 }
 
 func getSchemaDefinition(conn *solr.Connection) (*solr.Schema, error) {
-	configFile, err := conn.AdminGetCoreFile(solr.ConfigFile)
+	configFile, err := conn.GetCoreFile(solr.ConfigFile)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func getContextSchema(comm *commandInfo) map[string]docSchema {
 	}(time.Now())
 	dbSchemas := make(map[string]docSchema)
 
-	collectionNames, err := solr.AdminListCores(comm.host, comm.port, comm.context)
+	collectionNames, err := solr.ListCores(comm.host, comm.port, comm.context)
 	if err != nil {
 		log.Fatal(err)
 	}
