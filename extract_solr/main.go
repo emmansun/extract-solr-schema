@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/csv"
 	"encoding/json"
-	"encoding/xml"
 	"io/ioutil"
 	"log"
 	"os"
@@ -227,50 +226,13 @@ func buildQuery() *solr.Query {
 	return &query
 }
 
-func getSchemaDefinitionFromFile(conn *solr.Connection) (*solr.Schema, error) {
-	schemaFile, err := conn.GetCoreFile(solr.SchemaFile)
-	if err != nil {
-		return nil, err
-	}
-	schema := new(solr.Schema)
-	err = xml.Unmarshal(schemaFile, schema)
-	if err != nil {
-		return nil, err
-	}
-	return schema, nil
-}
-
-func getSchemaDefinitionFromAPI(conn *solr.Connection) (*solr.Schema, error) {
-	schema, err := conn.ListSchemaFields(true)
-	if err != nil {
-		return nil, err
-	}
-	return schema, nil
-}
-
-func getSchemaDefinition(conn *solr.Connection) (*solr.Schema, error) {
-	configFile, err := conn.GetCoreFile(solr.ConfigFile)
-	if err != nil {
-		return nil, err
-	}
-	config := new(solr.SolrConfig)
-	err = xml.Unmarshal(configFile, config)
-	if err != nil {
-		return nil, err
-	}
-	if config.SchemaFactory.Class == solr.ClassicIndexSchemaFactory {
-		return getSchemaDefinitionFromFile(conn)
-	}
-	return getSchemaDefinitionFromAPI(conn)
-}
-
 func genCoreSchema(dbSchema map[string]docSchema, comm *commandInfo, coreName string) {
 	fieldSet := make(map[string]struct{})
 	conn, err := solr.InitWithCtx(comm.host, comm.port, comm.context, coreName)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	solrSchema, err := getSchemaDefinition(conn)
+	solrSchema, err := conn.GetSchemaDefinition()
 	if err != nil {
 		log.Printf("Failed to get schema fields %v\n", err)
 	}
